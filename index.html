@@ -104,7 +104,7 @@ const { useState, useEffect, useMemo, useRef } = React;
    ⚙ 설정 없이도 모든 방문자가 자동으로 같은 시트에 연결됩니다.
    비워두면 기존처럼 각자 ⚙ 설정에서 직접 입력해야 합니다.
 ------------------------------------------------------------------- */
-const DEFAULT_SHEET_URL = ''; // 예: 'https://script.google.com/macros/s/AKfycb.../exec'
+const DEFAULT_SHEET_URL = ''; // 예: 'https://script.google.com/macros/s/AKfycbzMgrh2H5ebqjYLh4cBzFnqaAU7M5LL0z4fVbpVcmaVzbtPMz3H7qtlml7JPT_qvj7ShQ/exec'
 
 /* ----------------------------------------------------------------
    MOCK DATA — 소품 인벤토리 (백엔드 없이 프론트 상태로만 관리)
@@ -244,38 +244,32 @@ const initialProps = [
        쓰기(POST, 등록/내보내기) → 숨겨진 <form> 제출 방식으로 우회 (fetch가 아니라
        실제 브라우저 폼 전송이라 CORS 자체가 적용되지 않고, 서버에 확실히 도달합니다)
 ------------------------------------------------------------------- */
-function sheetGetAllViaJsonp_(webAppUrl) {
+function sheetGetAll(webAppUrl) {
   return new Promise((resolve, reject) => {
+    if (!webAppUrl) { reject(new Error('구글시트 웹앱 URL이 설정되지 않았습니다.')); return; }
     const callbackName = 'propInsightCb_' + Date.now() + '_' + Math.floor(Math.random() * 1e6);
     const script = document.createElement('script');
     let timeoutId;
-    const cleanup = () => { clearTimeout(timeoutId); delete window[callbackName]; script.remove(); };
+
+    const cleanup = () => {
+      clearTimeout(timeoutId);
+      delete window[callbackName];
+      script.remove();
+    };
+
     window[callbackName] = (data) => {
       cleanup();
       if (!Array.isArray(data)) { reject(new Error('시트 응답 형식이 올바르지 않습니다.')); return; }
       resolve(data);
     };
+
     script.onerror = () => { cleanup(); reject(new Error('시트 불러오기 요청 실패 (URL을 다시 확인해주세요)')); };
     timeoutId = setTimeout(() => { cleanup(); reject(new Error('시트 응답 시간이 초과되었습니다.')); }, 15000);
+
     const sep = webAppUrl.includes('?') ? '&' : '?';
     script.src = `${webAppUrl}${sep}action=list&callback=${callbackName}`;
     document.body.appendChild(script);
   });
-}
-
-async function sheetGetAll(webAppUrl) {
-  if (!webAppUrl) throw new Error('구글시트 웹앱 URL이 설정되지 않았습니다.');
-  const sep = webAppUrl.includes('?') ? '&' : '?';
-  try {
-    const res = await fetch(`${webAppUrl}${sep}action=list`, { method: 'GET' });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    if (!Array.isArray(data)) throw new Error('형식 오류');
-    return data;
-  } catch (err) {
-    // 일반 fetch가 막힌 환경(일부 모바일 브라우저 등)이면 JSONP 방식으로 한 번 더 시도
-    return sheetGetAllViaJsonp_(webAppUrl);
-  }
 }
 
 /** 숨겨진 iframe + form 제출로 구글 앱스스크립트에 POST — CORS를 타지 않아 확실히 서버에 도달합니다. */

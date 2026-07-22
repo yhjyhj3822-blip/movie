@@ -100,11 +100,11 @@
 const { useState, useEffect, useMemo, useRef } = React;
 
 /* ----------------------------------------------------------------
-   기본 구글시트 웹앱 URL — 배포한 Apps Script 웹앱 URL을 여기에 넣으면
+   기본 구글시트 API 주소 — sheetdb.io에서 발급받은 API 주소를 여기에 넣으면
    ⚙ 설정 없이도 모든 방문자가 자동으로 같은 시트에 연결됩니다.
    비워두면 기존처럼 각자 ⚙ 설정에서 직접 입력해야 합니다.
 ------------------------------------------------------------------- */
-const DEFAULT_SHEET_URL = 'https://script.google.com/macros/s/AKfycbzMgrh2H5ebqjYLh4cBzFnqaAU7M5LL0z4fVbpVcmaVzbtPMz3H7qtlml7JPT_qvj7ShQ/exec'; // 예: 'https://script.google.com/macros/s/AKfycb.../exec'
+const DEFAULT_SHEET_URL = 'https://sheetdb.io/api/v1/0pl1mazt7kwnf'; // 예: 'https://sheetdb.io/api/v1/xxxxxxxxxxxx'
 
 /* ----------------------------------------------------------------
    MOCK DATA — 소품 인벤토리 (백엔드 없이 프론트 상태로만 관리)
@@ -233,95 +233,95 @@ const initialProps = [
 ];
 
 /* ----------------------------------------------------------------
-   GOOGLE SHEETS 연동 유틸
-   - 구글시트를 DB처럼 쓰기 위해 "Google Apps Script 웹앱"을 백엔드로 사용합니다.
-   - 이 파일과 함께 제공되는 Code.gs 를 구글 시트의 Apps Script 편집기에 붙여넣고
-     "웹 앱으로 배포"한 뒤, 발급되는 URL을 화면 우측 상단 ⚙ 설정에 붙여넣으면 됩니다.
-   - ⚠ Apps Script 웹앱은 내부적으로 리다이렉트(302)가 일어나는데, 이 리다이렉트 응답에는
-     CORS 허용 헤더가 없어서 fetch()로 "응답을 읽으려는" 시도가 브라우저에서 막힙니다.
-     그래서:
-       읽기(GET, 목록 불러오기) → CORS를 타지 않는 JSONP(<script> 태그) 방식으로 우회
-       쓰기(POST, 등록/내보내기) → 숨겨진 <form> 제출 방식으로 우회 (fetch가 아니라
-       실제 브라우저 폼 전송이라 CORS 자체가 적용되지 않고, 서버에 확실히 도달합니다)
+   GOOGLE SHEETS 연동 유틸 (SheetDB.io 사용)
+   - sheetdb.io 에서 구글시트를 연결하면 CORS가 기본 지원되는 REST API 주소가 발급됩니다.
+   - Apps Script 배포, 권한 설정, 프록시 서버 등이 전혀 필요 없고, 어떤 기기/브라우저에서도
+     동일하게 동작합니다 (별도의 리다이렉트가 없어서 발생하던 CORS 문제 자체가 없습니다).
+   - 시트의 첫 행(헤더)은 아래 이름 그대로여야 합니다:
+     id, code, name, category, film, condition, donor, caption,
+     gradient1, gradient2, isPriority, reservedBy, imageUrl, videoUrl
 ------------------------------------------------------------------- */
-function sheetGetAllViaJsonp_(webAppUrl) {
-  return new Promise((resolve, reject) => {
-    const callbackName = 'propInsightCb_' + Date.now() + '_' + Math.floor(Math.random() * 1e6);
-    const script = document.createElement('script');
-    let timeoutId;
-    const cleanup = () => { clearTimeout(timeoutId); delete window[callbackName]; script.remove(); };
-    window[callbackName] = (data) => {
-      cleanup();
-      if (!Array.isArray(data)) { reject(new Error('시트 응답 형식이 올바르지 않습니다.')); return; }
-      resolve(data);
-    };
-    script.onerror = () => { cleanup(); reject(new Error('시트 불러오기 요청 실패 (URL을 다시 확인해주세요)')); };
-    timeoutId = setTimeout(() => { cleanup(); reject(new Error('시트 응답 시간이 초과되었습니다.')); }, 15000);
-    const sep = webAppUrl.includes('?') ? '&' : '?';
-    script.src = `${webAppUrl}${sep}action=list&callback=${callbackName}`;
-    document.body.appendChild(script);
-  });
+const SHEET_TAB_NAME = 'Props'; // 구글시트의 탭(시트) 이름
+
+function sheetRowToProp_(row) {
+  const toBool = (v) => v === true || v === 'TRUE' || v === 'true' || v === '1';
+  const orNull = (v) => (v === undefined || v === null || v === '' ? null : v);
+  return {
+    id: row.id,
+    code: row.code,
+    name: row.name,
+    category: row.category,
+    film: row.film,
+    condition: row.condition,
+    donor: row.donor,
+    caption: row.caption,
+    gradient: [row.gradient1 || '#3a352f', row.gradient2 || '#6b625a'],
+    isPriority: toBool(row.isPriority),
+    reservedBy: orNull(row.reservedBy),
+    imageUrl: orNull(row.imageUrl),
+    videoUrl: orNull(row.videoUrl),
+  };
 }
 
-async function sheetGetAll(webAppUrl) {
-  if (!webAppUrl) throw new Error('구글시트 웹앱 URL이 설정되지 않았습니다.');
-  const sep = webAppUrl.includes('?') ? '&' : '?';
-  try {
-    const res = await fetch(`${webAppUrl}${sep}action=list`, { method: 'GET' });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    if (!Array.isArray(data)) throw new Error('형식 오류');
-    return data;
-  } catch (err) {
-    // 일반 fetch가 막힌 환경(일부 모바일 브라우저 등)이면 JSONP 방식으로 한 번 더 시도
-    return sheetGetAllViaJsonp_(webAppUrl);
+function propToSheetRow_(prop) {
+  const g = prop.gradient || ['#3a352f', '#6b625a'];
+  return {
+    id: String(prop.id),
+    code: prop.code || '',
+    name: prop.name || '',
+    category: prop.category || '',
+    film: prop.film || '',
+    condition: prop.condition || '',
+    donor: prop.donor || '',
+    caption: prop.caption || '',
+    gradient1: g[0],
+    gradient2: g[1],
+    isPriority: prop.isPriority ? 'TRUE' : 'FALSE',
+    reservedBy: prop.reservedBy || '',
+    imageUrl: prop.imageUrl || '',
+    videoUrl: prop.videoUrl || '',
+  };
+}
+
+async function sheetGetAll(apiUrl) {
+  if (!apiUrl) throw new Error('시트 API 주소가 설정되지 않았습니다.');
+  const res = await fetch(`${apiUrl}?sheet=${encodeURIComponent(SHEET_TAB_NAME)}`);
+  if (!res.ok) throw new Error(`시트 불러오기 실패 (HTTP ${res.status})`);
+  const rows = await res.json();
+  if (!Array.isArray(rows)) throw new Error('시트 응답 형식이 올바르지 않습니다.');
+  return rows.filter(r => r.id).map(sheetRowToProp_);
+}
+
+async function sheetAddOrUpdate(apiUrl, prop) {
+  if (!apiUrl) throw new Error('시트 API 주소가 설정되지 않았습니다.');
+  const row = propToSheetRow_(prop);
+
+  // 이미 같은 id가 있으면 수정(PATCH), 없으면 새로 추가(POST)
+  const patchRes = await fetch(
+    `${apiUrl}/id/${encodeURIComponent(row.id)}?sheet=${encodeURIComponent(SHEET_TAB_NAME)}`,
+    { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data: row }) }
+  );
+  if (patchRes.ok) {
+    const patchData = await patchRes.json().catch(() => null);
+    if (patchData && patchData.updated > 0) return { ok: true };
   }
-}
 
-/** 숨겨진 iframe + form 제출로 구글 앱스스크립트에 POST — CORS를 타지 않아 확실히 서버에 도달합니다. */
-function sheetPostViaForm(webAppUrl, payload) {
-  return new Promise((resolve, reject) => {
-    if (!webAppUrl) { reject(new Error('구글시트 웹앱 URL이 설정되지 않았습니다.')); return; }
-
-    const uniq = 'propInsightFrame_' + Date.now() + '_' + Math.floor(Math.random() * 1e6);
-    const iframe = document.createElement('iframe');
-    iframe.name = uniq;
-    iframe.style.display = 'none';
-    document.body.appendChild(iframe);
-
-    const form = document.createElement('form');
-    form.action = webAppUrl;
-    form.method = 'POST';
-    form.target = uniq;
-    form.style.display = 'none';
-
-    const input = document.createElement('input');
-    input.type = 'hidden';
-    input.name = 'payload';
-    input.value = JSON.stringify(payload);
-    form.appendChild(input);
-    document.body.appendChild(form);
-
-    // 폼 제출은 응답 내용을 읽을 수 없으므로(다른 출처 iframe), 일정 시간 후
-    // "요청은 보냈다"고 간주하고 정리합니다. 실제 반영 여부는 시트에서 확인하세요.
-    const cleanup = () => { form.remove(); iframe.remove(); };
-    try {
-      form.submit();
-    } catch (err) {
-      cleanup();
-      reject(err);
-      return;
-    }
-    setTimeout(() => { cleanup(); resolve({ ok: true }); }, 1200);
+  const postRes = await fetch(`${apiUrl}?sheet=${encodeURIComponent(SHEET_TAB_NAME)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ data: [row] }),
   });
+  if (!postRes.ok) throw new Error(`시트 저장 실패 (HTTP ${postRes.status})`);
+  return { ok: true };
 }
 
-async function sheetAddOrUpdate(webAppUrl, prop) {
-  return sheetPostViaForm(webAppUrl, { action: 'upsert', prop });
-}
-
-async function sheetExportAll(webAppUrl, propsList) {
-  return sheetPostViaForm(webAppUrl, { action: 'replaceAll', props: propsList });
+async function sheetExportAll(apiUrl, propsList) {
+  if (!apiUrl) throw new Error('시트 API 주소가 설정되지 않았습니다.');
+  // 행 삭제 없이, 목록에 있는 항목을 하나씩 있으면 수정/없으면 추가 (데이터 유실 위험 없음)
+  for (const prop of propsList) {
+    await sheetAddOrUpdate(apiUrl, prop);
+  }
+  return { ok: true };
 }
 
 /* ----------------------------------------------------------------
@@ -693,11 +693,11 @@ function SettingsModal({ open, onClose, sheetUrl, setSheetUrl, onLoadFromSheet, 
     <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center px-4" onClick={onClose}>
       <div className="bg-surface border border-white/10 rounded-lg p-5 w-full max-w-md" onClick={e => e.stopPropagation()}>
         <h3 className="font-display text-2xl tracking-wide mb-1">구글시트 연동</h3>
-        <p className="text-xs text-muted mb-3">Apps Script 웹앱으로 배포한 URL을 붙여넣으세요. (함께 제공된 Code.gs 참고)</p>
+        <p className="text-xs text-muted mb-3">sheetdb.io에서 발급받은 API 주소를 붙여넣으세요.</p>
         <input
           value={draft}
           onChange={e => setDraft(e.target.value)}
-          placeholder="https://script.google.com/macros/s/.../exec"
+          placeholder="https://sheetdb.io/api/v1/xxxxxxxxxxxx"
           className="w-full bg-stage border border-white/10 rounded px-3 py-2 text-xs font-mono"
         />
         <div className="flex gap-2 mt-4">

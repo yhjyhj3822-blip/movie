@@ -1,0 +1,932 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>PropInsight — 영화 소품 대여 플랫폼</title>
+
+<!-- Tailwind CDN -->
+<script src="https://cdn.tailwindcss.com"></script>
+<!-- React + ReactDOM (UMD) -->
+<script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+<!-- Babel standalone (JSX in-browser) -->
+<script src="https://unpkg.com/@babel/standalone/babel.min.js" crossorigin></script>
+
+<!-- Fonts: Bebas Neue(슬레이트 헤드라인) / Inter(본문) / JetBrains Mono(인벤토리 코드) -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          stage:   '#1B1917',
+          surface: '#242220',
+          surface2:'#2D2A27',
+          ink:     '#F3EEE6',
+          muted:   '#9C948A',
+          amber:   '#E7A33E',
+          rust:    '#B23A2F',
+          olive:   '#7A8F6E',
+        },
+        fontFamily: {
+          display: ['"Bebas Neue"', 'sans-serif'],
+          body: ['Inter', 'sans-serif'],
+          mono: ['"JetBrains Mono"', 'monospace'],
+        },
+      }
+    }
+  }
+</script>
+
+<style>
+  html, body { background:#1B1917; }
+  ::-webkit-scrollbar { width: 8px; }
+  ::-webkit-scrollbar-track { background: #1B1917; }
+  ::-webkit-scrollbar-thumb { background: #3a352f; border-radius: 4px; }
+
+  /* 클래퍼보드 로고 스트라이프 */
+  .clapper-stripe {
+    background-image: repeating-linear-gradient(
+      -35deg,
+      #F3EEE6 0px, #F3EEE6 10px,
+      #1B1917 10px, #1B1917 20px
+    );
+  }
+
+  /* 펀치홀 태그 느낌 */
+  .tag-hole {
+    width: 14px; height: 14px; border-radius: 9999px;
+    background: #1B1917;
+    box-shadow: inset 0 0 0 2px #55504a;
+  }
+
+  /* 예약 스탬프 */
+  .stamp {
+    transform: rotate(-11deg);
+    border: 3px solid #B23A2F;
+    color: #B23A2F;
+    letter-spacing: 0.08em;
+  }
+
+  /* 세로 스냅 스크롤 피드 */
+  .feed-scroll {
+    scroll-snap-type: y mandatory;
+    overflow-y: auto;
+  }
+  .feed-slide {
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
+  }
+
+  @keyframes toast-in {
+    from { opacity: 0; transform: translate(-50%, 12px); }
+    to   { opacity: 1; transform: translate(-50%, 0); }
+  }
+  .toast-anim { animation: toast-in 0.25s ease-out; }
+
+  .tab-underline {
+    transition: transform 0.25s ease;
+  }
+</style>
+</head>
+<body class="bg-stage text-ink font-body min-h-screen">
+
+<div id="root"></div>
+
+<script type="text/plain" id="app-source">
+const { useState, useEffect, useMemo, useRef } = React;
+
+/* ----------------------------------------------------------------
+   기본 구글시트 웹앱 URL — 배포한 Apps Script 웹앱 URL을 여기에 넣으면
+   ⚙ 설정 없이도 모든 방문자가 자동으로 같은 시트에 연결됩니다.
+   비워두면 기존처럼 각자 ⚙ 설정에서 직접 입력해야 합니다.
+------------------------------------------------------------------- */
+const DEFAULT_SHEET_URL = 'https://script.google.com/macros/s/AKfycbzMgrh2H5ebqjYLh4cBzFnqaAU7M5LL0z4fVbpVcmaVzbtPMz3H7qtlml7JPT_qvj7ShQ/exec'; // 예: 'https://script.google.com/macros/s/AKfycb.../exec'
+
+/* ----------------------------------------------------------------
+   MOCK DATA — 소품 인벤토리 (백엔드 없이 프론트 상태로만 관리)
+------------------------------------------------------------------- */
+const initialProps = [
+  {
+    id: 1,
+    code: 'PS-0142',
+    name: '낡은 가죽 채찍',
+    category: '액션 소품',
+    film: '《듄스트 오브 골드》 (가상)',
+    condition: '양호',
+    donor: '만석 스튜디오',
+    gradient: ['#4a2f1c', '#8a5a2e'],
+    caption: '주인공이 절벽 추격 씬에서 실제로 사용한 촬영용 채찍입니다.',
+    isPriority: false,
+    reservedBy: null,
+    imageUrl: null,
+    videoUrl: null,
+  },
+  {
+    id: 2,
+    code: 'PS-0209',
+    name: '사이버네틱 마스크',
+    category: 'SF 소품',
+    film: '《네온 시티 2099》',
+    condition: '매우 양호',
+    donor: '오로라 필름즈',
+    gradient: ['#0f2f3a', '#0fb6c9'],
+    caption: 'LED 배선이 살아있는 근미래 안드로이드 마스크.',
+    isPriority: true,
+    reservedBy: '인디 감독 · 박지훈',
+    imageUrl: null,
+    videoUrl: null,
+  },
+  {
+    id: 3,
+    code: 'PS-0335',
+    name: '빈티지 타자기',
+    category: '느와르 소품',
+    film: '《마지막 자백》',
+    condition: '보통',
+    donor: '경성 프롭스',
+    gradient: ['#232323', '#5c5c5c'],
+    caption: '탐정 사무실 책상 위에 놓여있던 1940년대풍 타자기 소품.',
+    isPriority: false,
+    reservedBy: null,
+    imageUrl: null,
+    videoUrl: null,
+  },
+  {
+    id: 4,
+    code: 'PS-0410',
+    name: '마법사의 지팡이',
+    category: '판타지 소품',
+    film: '《에메랄드 문 연대기》',
+    condition: '양호',
+    donor: '드림게이트 픽처스',
+    gradient: ['#1f3d24', '#c9a227'],
+    caption: '클라이맥스 전투 씬에 사용된 발광 지팡이 소품.',
+    isPriority: false,
+    reservedBy: null,
+    imageUrl: null,
+    videoUrl: null,
+  },
+  {
+    id: 5,
+    code: 'PS-0522',
+    name: '우주비행사 헬멧',
+    category: 'SF 소품',
+    film: '《궤도 너머》',
+    condition: '매우 양호',
+    donor: '오로라 필름즈',
+    gradient: ['#1a2a3a', '#e8ecef'],
+    caption: '실제 우주복 레플리카 헬멧, 바이저 개폐 기믹 포함.',
+    isPriority: false,
+    reservedBy: null,
+    imageUrl: null,
+    videoUrl: null,
+  },
+  {
+    id: 6,
+    code: 'PS-0601',
+    name: '앤틱 회중시계',
+    category: '시대극 소품',
+    film: '《안개의 계절》',
+    condition: '양호',
+    donor: '경성 프롭스',
+    gradient: ['#3a2a12', '#b8863b'],
+    caption: '주인공의 잃어버린 아버지의 유품으로 등장하는 회중시계.',
+    isPriority: true,
+    reservedBy: '인디 감독 · 서예은',
+    imageUrl: null,
+    videoUrl: null,
+  },
+  {
+    id: 7,
+    code: 'PS-0678',
+    name: '형사 배지',
+    category: '느와르 소품',
+    film: '《마지막 자백》',
+    condition: '보통',
+    donor: '만석 스튜디오',
+    gradient: ['#1c1c1c', '#8f8f8f'],
+    caption: '클로즈업 촬영용 정밀 각인 형사 배지.',
+    isPriority: false,
+    reservedBy: null,
+    imageUrl: null,
+    videoUrl: null,
+  },
+  {
+    id: 8,
+    code: 'PS-0733',
+    name: '드래곤 스케일 방패',
+    category: '판타지 소품',
+    film: '《에메랄드 문 연대기》',
+    condition: '양호',
+    donor: '드림게이트 픽처스',
+    gradient: ['#3a1414', '#d4622f'],
+    caption: '최종 결투 씬에서 사용된 드래곤 비늘 문양 방패.',
+    isPriority: false,
+    reservedBy: null,
+    imageUrl: null,
+    videoUrl: null,
+  },
+];
+
+/* ----------------------------------------------------------------
+   GOOGLE SHEETS 연동 유틸
+   - 구글시트를 DB처럼 쓰기 위해 "Google Apps Script 웹앱"을 백엔드로 사용합니다.
+   - 이 파일과 함께 제공되는 Code.gs 를 구글 시트의 Apps Script 편집기에 붙여넣고
+     "웹 앱으로 배포"한 뒤, 발급되는 URL을 화면 우측 상단 ⚙ 설정에 붙여넣으면 됩니다.
+   - ⚠ Apps Script 웹앱은 내부적으로 리다이렉트(302)가 일어나는데, 이 리다이렉트 응답에는
+     CORS 허용 헤더가 없어서 fetch()로 "응답을 읽으려는" 시도가 브라우저에서 막힙니다.
+     그래서:
+       읽기(GET, 목록 불러오기) → CORS를 타지 않는 JSONP(<script> 태그) 방식으로 우회
+       쓰기(POST, 등록/내보내기) → 숨겨진 <form> 제출 방식으로 우회 (fetch가 아니라
+       실제 브라우저 폼 전송이라 CORS 자체가 적용되지 않고, 서버에 확실히 도달합니다)
+------------------------------------------------------------------- */
+function sheetGetAll(webAppUrl) {
+  return new Promise((resolve, reject) => {
+    if (!webAppUrl) { reject(new Error('구글시트 웹앱 URL이 설정되지 않았습니다.')); return; }
+    const callbackName = 'propInsightCb_' + Date.now() + '_' + Math.floor(Math.random() * 1e6);
+    const script = document.createElement('script');
+    let timeoutId;
+
+    const cleanup = () => {
+      clearTimeout(timeoutId);
+      delete window[callbackName];
+      script.remove();
+    };
+
+    window[callbackName] = (data) => {
+      cleanup();
+      if (!Array.isArray(data)) { reject(new Error('시트 응답 형식이 올바르지 않습니다.')); return; }
+      resolve(data);
+    };
+
+    script.onerror = () => { cleanup(); reject(new Error('시트 불러오기 요청 실패 (URL을 다시 확인해주세요)')); };
+    timeoutId = setTimeout(() => { cleanup(); reject(new Error('시트 응답 시간이 초과되었습니다.')); }, 15000);
+
+    const sep = webAppUrl.includes('?') ? '&' : '?';
+    script.src = `${webAppUrl}${sep}action=list&callback=${callbackName}`;
+    document.body.appendChild(script);
+  });
+}
+
+/** 숨겨진 iframe + form 제출로 구글 앱스스크립트에 POST — CORS를 타지 않아 확실히 서버에 도달합니다. */
+function sheetPostViaForm(webAppUrl, payload) {
+  return new Promise((resolve, reject) => {
+    if (!webAppUrl) { reject(new Error('구글시트 웹앱 URL이 설정되지 않았습니다.')); return; }
+
+    const uniq = 'propInsightFrame_' + Date.now() + '_' + Math.floor(Math.random() * 1e6);
+    const iframe = document.createElement('iframe');
+    iframe.name = uniq;
+    iframe.style.display = 'none';
+    document.body.appendChild(iframe);
+
+    const form = document.createElement('form');
+    form.action = webAppUrl;
+    form.method = 'POST';
+    form.target = uniq;
+    form.style.display = 'none';
+
+    const input = document.createElement('input');
+    input.type = 'hidden';
+    input.name = 'payload';
+    input.value = JSON.stringify(payload);
+    form.appendChild(input);
+    document.body.appendChild(form);
+
+    // 폼 제출은 응답 내용을 읽을 수 없으므로(다른 출처 iframe), 일정 시간 후
+    // "요청은 보냈다"고 간주하고 정리합니다. 실제 반영 여부는 시트에서 확인하세요.
+    const cleanup = () => { form.remove(); iframe.remove(); };
+    try {
+      form.submit();
+    } catch (err) {
+      cleanup();
+      reject(err);
+      return;
+    }
+    setTimeout(() => { cleanup(); resolve({ ok: true }); }, 1200);
+  });
+}
+
+async function sheetAddOrUpdate(webAppUrl, prop) {
+  return sheetPostViaForm(webAppUrl, { action: 'upsert', prop });
+}
+
+async function sheetExportAll(webAppUrl, propsList) {
+  return sheetPostViaForm(webAppUrl, { action: 'replaceAll', props: propsList });
+}
+
+/* ----------------------------------------------------------------
+   아이콘 (외부 라이브러리 없이 인라인 SVG)
+------------------------------------------------------------------- */
+const Icon = {
+  Heart: ({ filled }) => (
+    <svg viewBox="0 0 24 24" width="26" height="26" fill={filled ? '#B23A2F' : 'none'} stroke={filled ? '#B23A2F' : '#F3EEE6'} strokeWidth="2">
+      <path d="M12 21s-7.5-4.6-10-9.3C.4 8.3 2 4.5 5.7 4c2.1-.3 4 .8 6.3 3.2C14.3 4.8 16.2 3.7 18.3 4c3.7.5 5.3 4.3 3.7 7.7C19.5 16.4 12 21 12 21z" />
+    </svg>
+  ),
+  Bookmark: ({ filled }) => (
+    <svg viewBox="0 0 24 24" width="24" height="24" fill={filled ? '#E7A33E' : 'none'} stroke={filled ? '#E7A33E' : '#F3EEE6'} strokeWidth="2">
+      <path d="M6 3.5h12a1 1 0 0 1 1 1V21l-7-4-7 4V4.5a1 1 0 0 1 1-1z" />
+    </svg>
+  ),
+  Share: () => (
+    <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#F3EEE6" strokeWidth="2">
+      <path d="M4 12l16-7-6 16-2.5-6.5L4 12z" />
+    </svg>
+  ),
+  Clapper: () => (
+    <svg viewBox="0 0 40 32" width="30" height="24">
+      <rect x="2" y="10" width="36" height="20" rx="2" fill="#F3EEE6" />
+      <polygon points="2,10 10,2 16,2 8,10" fill="#1B1917" />
+      <polygon points="14,10 22,2 28,2 20,10" fill="#F3EEE6" />
+      <polygon points="26,10 34,2 38,3 30,10" fill="#1B1917" />
+      <rect x="2" y="10" width="36" height="4" fill="#B23A2F" />
+    </svg>
+  ),
+};
+
+/* ----------------------------------------------------------------
+   TOAST — 대여 차단/성공 알림
+------------------------------------------------------------------- */
+function Toast({ toast }) {
+  if (!toast) return null;
+  const tone = toast.type === 'block'
+    ? 'bg-rust/95 border-rust'
+    : 'bg-olive/95 border-olive';
+  return (
+    <div className={`fixed bottom-8 left-1/2 toast-anim z-50 px-5 py-3 rounded-lg border ${tone} shadow-xl max-w-sm text-center`}>
+      <p className="text-sm font-semibold text-ink">{toast.message}</p>
+    </div>
+  );
+}
+
+/* ----------------------------------------------------------------
+   인벤토리 태그 카드 (카탈로그 화면의 시그니처 컴포넌트)
+------------------------------------------------------------------- */
+function PropTag({ prop, onReserve }) {
+  const reserved = prop.isPriority;
+  return (
+    <div className={`relative rounded-md bg-surface border ${reserved ? 'border-rust/60' : 'border-white/10'} overflow-hidden flex flex-col shadow-lg`}>
+
+      {/* 펀치홀 + 코드 라벨 */}
+      <div className="flex items-center justify-between px-3 pt-3">
+        <div className="tag-hole"></div>
+        <span className="font-mono text-[11px] tracking-widest text-muted">{prop.code}</span>
+      </div>
+
+      {/* 사진 영역: 업로드된 이미지가 있으면 표시, 없으면 플레이스홀더 그라디언트 */}
+      <div
+        className="relative mt-2 mx-3 h-36 rounded overflow-hidden flex items-end"
+        style={!prop.imageUrl ? { backgroundImage: `linear-gradient(155deg, ${(prop.gradient || ['#3a352f','#6b625a'])[0]}, ${(prop.gradient || ['#3a352f','#6b625a'])[1]})` } : undefined}
+      >
+        {prop.imageUrl && (
+          <img src={prop.imageUrl} alt={prop.name} className="absolute inset-0 w-full h-full object-cover" />
+        )}
+        <span className="relative text-[10px] font-mono text-ink/70 bg-black/30 px-2 py-0.5 m-2 rounded">{prop.category}</span>
+
+        {reserved && (
+          <div className="absolute inset-0 flex items-center justify-center bg-stage/40">
+            <div className="stamp px-3 py-1 text-xs font-bold uppercase bg-stage/70 rounded">
+              예약 완료
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 정보 */}
+      <div className="px-4 pt-3 pb-4 flex flex-col gap-1 grow">
+        <h3 className="font-display text-2xl leading-none tracking-wide">{prop.name}</h3>
+        <p className="text-xs text-muted">{prop.film} · 상태 {prop.condition}</p>
+        <p className="text-xs text-muted/80 mt-1 line-clamp-2">{prop.caption}</p>
+
+        <div className="mt-3 flex items-center justify-between gap-2">
+          {reserved ? (
+            <div className="w-full">
+              <button disabled className="w-full py-2 rounded bg-white/5 text-muted text-sm font-semibold cursor-not-allowed border border-white/10">
+                예약됨 · 촬영 대여 중
+              </button>
+              <p className="text-[11px] text-rust mt-1 text-center">{prop.reservedBy}</p>
+            </div>
+          ) : (
+            <button
+              onClick={() => onReserve(prop.id)}
+              className="w-full py-2 rounded bg-amber text-stage text-sm font-bold hover:bg-amber/90 active:scale-[0.99] transition"
+            >
+              우선 예약 신청
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ----------------------------------------------------------------
+   화면 1: 독립영화팀 카탈로그
+------------------------------------------------------------------- */
+function CatalogScreen({ props, onReserve }) {
+  const priorityCount = props.filter(p => p.isPriority).length;
+  return (
+    <div className="max-w-6xl mx-auto px-4 sm:px-6 pb-16">
+      <div className="pt-8 pb-6 border-b border-white/10 mb-6 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2">
+        <div>
+          <p className="font-mono text-xs text-amber tracking-widest mb-1">INDIE_DIRECTOR VIEW</p>
+          <h2 className="font-display text-4xl tracking-wide">소품 카탈로그 &amp; 우선 예약</h2>
+          <p className="text-sm text-muted mt-1">촬영에 필요한 소품을 비교하고, 촬영용으로 즉시 우선 예약하세요.</p>
+        </div>
+        <div className="font-mono text-xs text-muted whitespace-nowrap">
+          전체 {props.length}점 · 예약됨 {priorityCount}점
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {props.map(p => (
+          <PropTag key={p.id} prop={p} onReserve={onReserve} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ----------------------------------------------------------------
+   화면 2: 숏폼 피드 (일반 사용자)
+------------------------------------------------------------------- */
+function FeedSlide({ prop, interaction, onLike, onSave, onShare, onRent }) {
+  return (
+    <div className="feed-slide relative h-full w-full shrink-0 flex items-end justify-start"
+      style={!prop.videoUrl && !prop.imageUrl ? { backgroundImage: `linear-gradient(200deg, ${(prop.gradient || ['#3a352f','#6b625a'])[0]}, ${(prop.gradient || ['#3a352f','#6b625a'])[1]})` } : undefined}
+    >
+      {/* 업로드된 영상 클립이 있으면 우선 재생, 없고 이미지가 있으면 이미지, 둘 다 없으면 그라디언트 플레이스홀더 */}
+      {prop.videoUrl ? (
+        <video
+          className="absolute inset-0 w-full h-full object-cover"
+          src={prop.videoUrl}
+          autoPlay
+          loop
+          muted
+          playsInline
+        />
+      ) : prop.imageUrl ? (
+        <img src={prop.imageUrl} alt={prop.name} className="absolute inset-0 w-full h-full object-cover" />
+      ) : null}
+
+      {/* 하단 가독성용 그라디언트 */}
+      <div className="absolute inset-0 bg-gradient-to-t from-stage/90 via-stage/10 to-transparent"></div>
+
+      {/* 예약됨 뱃지 */}
+      {prop.isPriority && (
+        <div className="absolute top-4 left-4 stamp px-2 py-0.5 text-[10px] font-bold bg-stage/70 rounded">
+          촬영 대여중
+        </div>
+      )}
+      <div className="absolute top-4 right-4 font-mono text-[10px] text-ink/60">{prop.code}</div>
+
+      {/* 우측 하단 인터랙션 스택 */}
+      <div className="absolute right-3 bottom-28 sm:bottom-24 flex flex-col items-center gap-5 z-10">
+        <button onClick={() => onLike(prop.id)} className="flex flex-col items-center gap-1 active:scale-90 transition">
+          <Icon.Heart filled={interaction.liked} />
+          <span className="text-[11px] font-mono">{interaction.likeCount}</span>
+        </button>
+        <button onClick={() => onSave(prop.id)} className="flex flex-col items-center gap-1 active:scale-90 transition">
+          <Icon.Bookmark filled={interaction.saved} />
+          <span className="text-[11px] font-mono">저장</span>
+        </button>
+        <button onClick={() => onShare(prop.id)} className="flex flex-col items-center gap-1 active:scale-90 transition">
+          <Icon.Share />
+          <span className="text-[11px] font-mono">공유</span>
+        </button>
+      </div>
+
+      {/* 좌하단 캡션 + 대여 버튼 */}
+      <div className="relative z-10 px-5 pb-8 pr-20 w-full">
+        <p className="text-xs text-amber font-mono tracking-wide mb-1">{prop.category} · {prop.film}</p>
+        <h3 className="font-display text-3xl tracking-wide">{prop.name}</h3>
+        <p className="text-sm text-ink/80 mt-1 max-w-md">{prop.caption}</p>
+
+        <button
+          onClick={() => onRent(prop)}
+          className={`mt-4 px-5 py-2.5 rounded-full text-sm font-bold transition active:scale-95 ${
+            prop.isPriority
+              ? 'bg-white/10 text-muted border border-white/20 cursor-not-allowed'
+              : 'bg-ink text-stage hover:bg-ink/90'
+          }`}
+        >
+          {prop.isPriority ? '대여 불가 · 촬영 중' : '대여하기'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function FeedScreen({ props, interactions, onLike, onSave, onShare, onRent }) {
+  return (
+    <div className="flex justify-center pt-6 pb-10 px-4">
+      <div className="w-full sm:max-w-[420px]">
+        <div className="mb-4 text-center">
+          <p className="font-mono text-xs text-amber tracking-widest mb-1">GENERAL_USER VIEW</p>
+          <h2 className="font-display text-3xl tracking-wide">숏폼 소품 피드</h2>
+          <p className="text-xs text-muted mt-1">위아래로 스크롤해서 소품 영상을 감상하고, 마음에 들면 대여를 신청해보세요.</p>
+        </div>
+
+        <div className="feed-scroll rounded-2xl border border-white/10 shadow-2xl" style={{ height: '72vh' }}>
+          {props.map(p => (
+            <FeedSlide
+              key={p.id}
+              prop={p}
+              interaction={interactions[p.id] || { liked: false, saved: false, likeCount: 0 }}
+              onLike={onLike}
+              onSave={onSave}
+              onShare={onShare}
+              onRent={onRent}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ----------------------------------------------------------------
+   화면 3: 소품 등록 — 사용자가 직접 이미지/영상 클립을 넣어 소품 추가
+------------------------------------------------------------------- */
+function RegisterScreen({ onAddProp, sheetUrl, syncing }) {
+  const blank = {
+    code: '', name: '', category: '', film: '', condition: '양호', donor: '',
+    caption: '', imageFileUrl: '', imageLinkUrl: '', videoFileUrl: '', videoLinkUrl: '',
+  };
+  const [form, setForm] = useState(blank);
+  const [imgFileName, setImgFileName] = useState('');
+  const [vidFileName, setVidFileName] = useState('');
+
+  const set = (key) => (e) => setForm(prev => ({ ...prev, [key]: e.target.value }));
+
+  const handleImageFile = (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setImgFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = () => setForm(prev => ({ ...prev, imageFileUrl: reader.result }));
+    reader.readAsDataURL(file); // 이미지는 용량이 작아 base64로 바로 저장 가능
+  };
+
+  const handleVideoFile = (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setVidFileName(file.name);
+    // 영상은 용량이 커서 base64 대신 브라우저 임시 재생 URL(blob)만 만듭니다.
+    // 이 blob URL은 "지금 이 탭을 새로고침하기 전까지"만 재생됩니다.
+    // 새로고침 후에도 유지하려면 아래 "영상 링크" 칸에 유튜브/구글드라이브/자체 서버 등에
+    // 업로드한 영상의 URL을 붙여넣어 주세요.
+    const url = URL.createObjectURL(file);
+    setForm(prev => ({ ...prev, videoFileUrl: url }));
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!form.name.trim()) { alert('소품 이름을 입력해주세요.'); return; }
+    const newProp = {
+      id: Date.now(),
+      code: form.code.trim() || `PS-${String(Math.floor(1000 + Math.random() * 9000))}`,
+      name: form.name.trim(),
+      category: form.category.trim() || '기타 소품',
+      film: form.film.trim() || '-',
+      condition: form.condition,
+      donor: form.donor.trim() || '-',
+      gradient: ['#3a352f', '#6b625a'], // 이미지가 없을 때만 쓰이는 기본 플레이스홀더 색
+      caption: form.caption.trim(),
+      isPriority: false,
+      reservedBy: null,
+      imageUrl: form.imageLinkUrl.trim() || form.imageFileUrl || null,
+      videoUrl: form.videoLinkUrl.trim() || form.videoFileUrl || null,
+    };
+    onAddProp(newProp);
+    setForm(blank);
+    setImgFileName('');
+    setVidFileName('');
+  };
+
+  return (
+    <div className="max-w-3xl mx-auto px-4 sm:px-6 pb-16">
+      <div className="pt-8 pb-6 border-b border-white/10 mb-6">
+        <p className="font-mono text-xs text-amber tracking-widest mb-1">ADD_YOUR_PROP</p>
+        <h2 className="font-display text-4xl tracking-wide">내 소품 직접 등록하기</h2>
+        <p className="text-sm text-muted mt-1">사진과 영상 클립을 올려서 카탈로그/숏폼 피드에 바로 추가하세요.{sheetUrl && ' 저장 시 구글시트에도 함께 기록됩니다.'}</p>
+      </div>
+
+      <form onSubmit={handleSubmit} className="bg-surface border border-white/10 rounded-lg p-5 flex flex-col gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="text-xs text-muted font-mono">소품 이름 *</label>
+            <input value={form.name} onChange={set('name')} className="mt-1 w-full bg-stage border border-white/10 rounded px-3 py-2 text-sm" placeholder="예: 낡은 가죽 채찍" />
+          </div>
+          <div>
+            <label className="text-xs text-muted font-mono">관리 코드 (선택)</label>
+            <input value={form.code} onChange={set('code')} className="mt-1 w-full bg-stage border border-white/10 rounded px-3 py-2 text-sm font-mono" placeholder="자동 생성됨" />
+          </div>
+          <div>
+            <label className="text-xs text-muted font-mono">카테고리</label>
+            <input value={form.category} onChange={set('category')} className="mt-1 w-full bg-stage border border-white/10 rounded px-3 py-2 text-sm" placeholder="예: SF 소품" />
+          </div>
+          <div>
+            <label className="text-xs text-muted font-mono">사용 작품명</label>
+            <input value={form.film} onChange={set('film')} className="mt-1 w-full bg-stage border border-white/10 rounded px-3 py-2 text-sm" placeholder="예: 《네온 시티 2099》" />
+          </div>
+          <div>
+            <label className="text-xs text-muted font-mono">상태</label>
+            <select value={form.condition} onChange={set('condition')} className="mt-1 w-full bg-stage border border-white/10 rounded px-3 py-2 text-sm">
+              <option>매우 양호</option><option>양호</option><option>보통</option><option>손상 있음</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-muted font-mono">제공처</label>
+            <input value={form.donor} onChange={set('donor')} className="mt-1 w-full bg-stage border border-white/10 rounded px-3 py-2 text-sm" placeholder="예: 만석 스튜디오" />
+          </div>
+        </div>
+
+        <div>
+          <label className="text-xs text-muted font-mono">소개 캡션</label>
+          <textarea value={form.caption} onChange={set('caption')} rows={2} className="mt-1 w-full bg-stage border border-white/10 rounded px-3 py-2 text-sm" placeholder="소품에 대한 짧은 설명" />
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-white/10">
+          <div>
+            <label className="text-xs text-amber font-mono">소품 이미지</label>
+            <input type="file" accept="image/*" onChange={handleImageFile} className="mt-1 w-full text-xs text-muted file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:bg-amber file:text-stage file:text-xs file:font-bold" />
+            {imgFileName && <p className="text-[11px] text-olive mt-1">첨부됨: {imgFileName}</p>}
+            <p className="text-[11px] text-muted mt-1">또는 이미지 URL 직접 입력:</p>
+            <input value={form.imageLinkUrl} onChange={set('imageLinkUrl')} className="mt-1 w-full bg-stage border border-white/10 rounded px-3 py-2 text-xs" placeholder="https://..." />
+          </div>
+          <div>
+            <label className="text-xs text-amber font-mono">소품 영상 클립</label>
+            <input type="file" accept="video/*" onChange={handleVideoFile} className="mt-1 w-full text-xs text-muted file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:bg-amber file:text-stage file:text-xs file:font-bold" />
+            {vidFileName && <p className="text-[11px] text-olive mt-1">첨부됨: {vidFileName} (새로고침 전까지만 재생됨)</p>}
+            <p className="text-[11px] text-muted mt-1">영구 저장하려면 영상 URL을 입력하세요 (권장):</p>
+            <input value={form.videoLinkUrl} onChange={set('videoLinkUrl')} className="mt-1 w-full bg-stage border border-white/10 rounded px-3 py-2 text-xs" placeholder="mp4 직링크, 구글드라이브 공유링크 등" />
+          </div>
+        </div>
+
+        <button type="submit" disabled={syncing} className="mt-2 w-full py-3 rounded bg-amber text-stage font-bold hover:bg-amber/90 active:scale-[0.99] transition disabled:opacity-50">
+          {syncing ? '저장 중...' : '소품 추가하기'}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+/* ----------------------------------------------------------------
+   구글시트 연동 설정 모달
+------------------------------------------------------------------- */
+function SettingsModal({ open, onClose, sheetUrl, setSheetUrl, onLoadFromSheet, onExportAll, syncing }) {
+  const [draft, setDraft] = useState(sheetUrl);
+  useEffect(() => { setDraft(sheetUrl); }, [open, sheetUrl]);
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center px-4" onClick={onClose}>
+      <div className="bg-surface border border-white/10 rounded-lg p-5 w-full max-w-md" onClick={e => e.stopPropagation()}>
+        <h3 className="font-display text-2xl tracking-wide mb-1">구글시트 연동</h3>
+        <p className="text-xs text-muted mb-3">Apps Script 웹앱으로 배포한 URL을 붙여넣으세요. (함께 제공된 Code.gs 참고)</p>
+        <input
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+          placeholder="https://script.google.com/macros/s/.../exec"
+          className="w-full bg-stage border border-white/10 rounded px-3 py-2 text-xs font-mono"
+        />
+        <div className="flex gap-2 mt-4">
+          <button onClick={() => setSheetUrl(draft)} className="flex-1 py-2 rounded bg-olive text-stage text-sm font-bold">저장</button>
+          <button onClick={onClose} className="flex-1 py-2 rounded bg-white/10 text-ink text-sm font-bold">닫기</button>
+        </div>
+        <div className="flex gap-2 mt-2">
+          <button disabled={!sheetUrl || syncing} onClick={onLoadFromSheet} className="flex-1 py-2 rounded border border-white/20 text-ink text-xs font-semibold disabled:opacity-40">
+            시트에서 불러오기
+          </button>
+          <button disabled={!sheetUrl || syncing} onClick={onExportAll} className="flex-1 py-2 rounded border border-white/20 text-ink text-xs font-semibold disabled:opacity-40">
+            현재 목록 시트로 내보내기
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ----------------------------------------------------------------
+   APP — 상단 탭으로 화면 전환 + 전역 상태(예약 목록) 공유
+------------------------------------------------------------------- */
+function App() {
+  const [tab, setTab] = useState('catalog'); // 'catalog' | 'feed' | 'register'
+  const [props, setProps] = useState(initialProps);
+  const [toast, setToast] = useState(null);
+  const toastTimer = useRef(null);
+
+  // 구글시트 연동 상태 — localStorage에 저장해서 새로고침해도 URL이 유지되도록 함
+  const SHEET_URL_KEY = 'propinsight_sheet_url';
+  const [sheetUrl, setSheetUrlState] = useState(() => {
+    try {
+      const saved = localStorage.getItem(SHEET_URL_KEY);
+      return saved || DEFAULT_SHEET_URL;
+    } catch (e) { return DEFAULT_SHEET_URL; }
+  });
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+
+  const setSheetUrl = (url) => {
+    setSheetUrlState(url);
+    try {
+      if (url) localStorage.setItem(SHEET_URL_KEY, url);
+      else localStorage.removeItem(SHEET_URL_KEY);
+    } catch (e) { /* localStorage 사용 불가 환경이면 조용히 무시 */ }
+    showToast(url ? '구글시트 웹앱 URL이 저장되었습니다.' : '구글시트 연동이 해제되었습니다.', 'success');
+  };
+
+  // 신규 소품 등록 (등록 화면에서 호출) — 로컬 목록에 추가 + 시트 연동 시 자동 업서트
+  const handleAddProp = async (newProp) => {
+    setProps(prev => [newProp, ...prev]);
+    setInteractions(prev => ({ ...prev, [newProp.id]: { liked: false, saved: false, likeCount: 0 } }));
+    if (sheetUrl) {
+      setSyncing(true);
+      try {
+        await sheetAddOrUpdate(sheetUrl, newProp);
+        showToast(`'${newProp.name}' 소품이 추가되고 구글시트에도 저장되었습니다.`, 'success');
+      } catch (err) {
+        showToast(`목록에는 추가되었지만 시트 저장에 실패했습니다: ${err.message}`, 'block');
+      } finally {
+        setSyncing(false);
+      }
+    } else {
+      showToast(`'${newProp.name}' 소품이 추가되었습니다.`, 'success');
+    }
+    setTab('catalog');
+  };
+
+  const handleLoadFromSheet = async () => {
+    setSyncing(true);
+    try {
+      const loaded = await sheetGetAll(sheetUrl);
+      setProps(loaded);
+      showToast(`구글시트에서 소품 ${loaded.length}건을 불러왔습니다.`, 'success');
+      setSettingsOpen(false);
+    } catch (err) {
+      showToast(`불러오기 실패: ${err.message}`, 'block');
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const handleExportAll = async () => {
+    setSyncing(true);
+    try {
+      await sheetExportAll(sheetUrl, props);
+      showToast('현재 소품 목록을 구글시트로 내보냈습니다.', 'success');
+      setSettingsOpen(false);
+    } catch (err) {
+      showToast(`내보내기 실패: ${err.message}`, 'block');
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  // 새로고침 시 시트 URL이 저장되어 있으면 자동으로 최신 소품 목록을 불러옴
+  useEffect(() => {
+    if (sheetUrl) {
+      handleLoadFromSheet();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const [interactions, setInteractions] = useState(() => {
+    const init = {};
+    initialProps.forEach(p => {
+      init[p.id] = { liked: false, saved: false, likeCount: 120 + p.id * 37 };
+    });
+    return init;
+  });
+
+  const showToast = (message, type = 'info') => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToast({ message, type });
+    toastTimer.current = setTimeout(() => setToast(null), 2600);
+  };
+
+  // 독립영화팀 화면: 우선 예약 처리 -> 전역 상태 갱신 (숏폼 화면에 실시간 반영)
+  const handleReserve = (id) => {
+    setProps(prev => prev.map(p =>
+      p.id === id ? { ...p, isPriority: true, reservedBy: '인디 감독 · 나 (지금 예약)' } : p
+    ));
+    showToast('우선 예약이 완료되었습니다. 일반 사용자 화면에서 즉시 대여가 차단됩니다.', 'success');
+  };
+
+  // 일반 사용자 화면: 대여 신청 -> 우선예약 여부 확인 후 차단/성공 분기
+  const handleRent = (prop) => {
+    if (prop.isPriority) {
+      showToast('현재 독립영화 촬영을 위해 대여 중입니다.', 'block');
+    } else {
+      showToast(`'${prop.name}' 대여 신청이 접수되었습니다.`, 'success');
+    }
+  };
+
+  const toggleLike = (id) => setInteractions(prev => {
+    const cur = prev[id];
+    const liked = !cur.liked;
+    return { ...prev, [id]: { ...cur, liked, likeCount: cur.likeCount + (liked ? 1 : -1) } };
+  });
+  const toggleSave = (id) => setInteractions(prev => ({ ...prev, [id]: { ...prev[id], saved: !prev[id].saved } }));
+  const handleShare = () => showToast('공유 링크가 복사되었습니다.', 'success');
+
+  return (
+    <div className="min-h-screen flex flex-col">
+      {/* 헤더 */}
+      <header className="sticky top-0 z-40 bg-stage/95 backdrop-blur border-b border-white/10">
+        <div className="clapper-stripe h-1.5 w-full opacity-70"></div>
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <Icon.Clapper />
+            <div>
+              <h1 className="font-display text-2xl tracking-widest leading-none">PROPINSIGHT</h1>
+              <p className="text-[10px] text-muted font-mono tracking-wide">소품 대여 &amp; 데이터 수집 플랫폼</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <nav className="flex items-center gap-1 bg-surface rounded-full p-1 border border-white/10">
+              <button
+                onClick={() => setTab('catalog')}
+                className={`px-4 py-2 rounded-full text-sm font-semibold transition ${tab === 'catalog' ? 'bg-amber text-stage' : 'text-muted hover:text-ink'}`}
+              >
+                인디 카탈로그
+              </button>
+              <button
+                onClick={() => setTab('feed')}
+                className={`px-4 py-2 rounded-full text-sm font-semibold transition ${tab === 'feed' ? 'bg-amber text-stage' : 'text-muted hover:text-ink'}`}
+              >
+                숏폼 피드
+              </button>
+              <button
+                onClick={() => setTab('register')}
+                className={`px-4 py-2 rounded-full text-sm font-semibold transition ${tab === 'register' ? 'bg-amber text-stage' : 'text-muted hover:text-ink'}`}
+              >
+                소품 등록
+              </button>
+            </nav>
+            <button
+              onClick={() => setSettingsOpen(true)}
+              title="구글시트 연동 설정"
+              className={`w-9 h-9 rounded-full border flex items-center justify-center transition ${sheetUrl ? 'border-olive text-olive' : 'border-white/10 text-muted hover:text-ink'}`}
+            >
+              ⚙
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {/* 본문 */}
+      <main className="flex-1">
+        {tab === 'catalog' && <CatalogScreen props={props} onReserve={handleReserve} />}
+        {tab === 'feed' && (
+          <FeedScreen
+            props={props}
+            interactions={interactions}
+            onLike={toggleLike}
+            onSave={toggleSave}
+            onShare={handleShare}
+            onRent={handleRent}
+          />
+        )}
+        {tab === 'register' && (
+          <RegisterScreen onAddProp={handleAddProp} sheetUrl={sheetUrl} syncing={syncing} />
+        )}
+      </main>
+
+      <SettingsModal
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        sheetUrl={sheetUrl}
+        setSheetUrl={setSheetUrl}
+        onLoadFromSheet={handleLoadFromSheet}
+        onExportAll={handleExportAll}
+        syncing={syncing}
+      />
+
+      <Toast toast={toast} />
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+
+<script>
+  (function () {
+    var code = document.getElementById('app-source').textContent;
+    var output = Babel.transform(code, {
+      presets: [['react', { runtime: 'classic' }]],
+      filename: 'app.jsx'
+    }).code;
+    var script = document.createElement('script');
+    script.textContent = output;
+    document.body.appendChild(script);
+  })();
+</script>
+</body>
+</html>

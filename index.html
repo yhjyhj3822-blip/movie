@@ -5,6 +5,16 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>PropInsight — 영화 소품 대여 플랫폼</title>
 
+<!-- 홈 화면에 추가했을 때 앱처럼 열리도록 하는 설정 (PWA) -->
+<link rel="manifest" href="manifest.json" />
+<meta name="theme-color" content="#141210" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="PropInsight" />
+<link rel="apple-touch-icon" href="icon-192.png" />
+<link rel="icon" href="icon-192.png" />
+
 <!-- Tailwind CDN -->
 <script src="https://cdn.tailwindcss.com"></script>
 <!-- React + ReactDOM (UMD) -->
@@ -485,8 +495,35 @@ function getGoogleDriveEmbedUrl_(url) {
 function FeedSlide({ prop, interaction, onLike, onSave, onShare, onRent }) {
   const youtubeEmbedUrl = getYoutubeEmbedUrl_(prop.videoUrl);
   const driveEmbedUrl = !youtubeEmbedUrl ? getGoogleDriveEmbedUrl_(prop.videoUrl) : null;
+  const isPlainVideo = !youtubeEmbedUrl && !driveEmbedUrl && !!prop.videoUrl;
+  const videoRef = useRef(null);
+  const slideRef = useRef(null);
+
+  // 숏폼처럼: 이 영상이 화면(스크롤 컨테이너) 안에 충분히 보일 때만 재생하고,
+  // 스크롤해서 벗어나면 자동으로 멈춥니다.
+  useEffect(() => {
+    if (!isPlainVideo || !videoRef.current || !slideRef.current) return;
+    const scrollRoot = slideRef.current.closest('.feed-scroll');
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          const video = videoRef.current;
+          if (!video) return;
+          if (entry.isIntersecting) {
+            video.play().catch(() => {});
+          } else {
+            video.pause();
+          }
+        });
+      },
+      { root: scrollRoot || null, threshold: 0.6 }
+    );
+    observer.observe(slideRef.current);
+    return () => observer.disconnect();
+  }, [isPlainVideo, prop.videoUrl]);
+
   return (
-    <div className="feed-slide relative h-full w-full shrink-0 flex items-end justify-start"
+    <div ref={slideRef} className="feed-slide relative h-full w-full shrink-0 flex items-end justify-start"
       style={!prop.videoUrl && !prop.imageUrl ? { backgroundImage: `linear-gradient(200deg, ${(prop.gradient || ['#3a352f','#6b625a'])[0]}, ${(prop.gradient || ['#3a352f','#6b625a'])[1]})` } : undefined}
     >
       {/* 유튜브/구글드라이브 링크면 iframe 임베드, 그 외 mp4 등 직접 영상 링크면 video 태그,
@@ -507,9 +544,9 @@ function FeedSlide({ prop, interaction, onLike, onSave, onShare, onRent }) {
         />
       ) : prop.videoUrl ? (
         <video
+          ref={videoRef}
           className="absolute inset-0 w-full h-full object-cover"
           src={prop.videoUrl}
-          autoPlay
           loop
           muted
           playsInline

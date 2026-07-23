@@ -131,8 +131,11 @@ const initialProps = [
     gradient: ['#4a2f1c', '#8a5a2e'],
     caption: '주인공이 절벽 추격 씬에서 실제로 사용한 촬영용 채찍입니다.',
     priorityReservedBy: null,
-    priorityReservedDate: null,
+    priorityStartDate: null,
+    priorityEndDate: null,
     generalRentedBy: null,
+    generalStartDate: null,
+    generalEndDate: null,
     imageUrl: null,
     videoUrl: null,
   },
@@ -147,8 +150,11 @@ const initialProps = [
     gradient: ['#0f2f3a', '#0fb6c9'],
     caption: 'LED 배선이 살아있는 근미래 안드로이드 마스크.',
     priorityReservedBy: '인디 감독 · 박지훈',
-    priorityReservedDate: '2026-08-20',
+    priorityStartDate: '2026-08-20',
+    priorityEndDate: '2026-08-20',
     generalRentedBy: null,
+    generalStartDate: null,
+    generalEndDate: null,
     imageUrl: null,
     videoUrl: null,
   },
@@ -163,8 +169,11 @@ const initialProps = [
     gradient: ['#232323', '#5c5c5c'],
     caption: '탐정 사무실 책상 위에 놓여있던 1940년대풍 타자기 소품.',
     priorityReservedBy: null,
-    priorityReservedDate: null,
+    priorityStartDate: null,
+    priorityEndDate: null,
     generalRentedBy: null,
+    generalStartDate: null,
+    generalEndDate: null,
     imageUrl: null,
     videoUrl: null,
   },
@@ -179,8 +188,11 @@ const initialProps = [
     gradient: ['#1f3d24', '#c9a227'],
     caption: '클라이맥스 전투 씬에 사용된 발광 지팡이 소품.',
     priorityReservedBy: null,
-    priorityReservedDate: null,
+    priorityStartDate: null,
+    priorityEndDate: null,
     generalRentedBy: null,
+    generalStartDate: null,
+    generalEndDate: null,
     imageUrl: null,
     videoUrl: null,
   },
@@ -195,8 +207,11 @@ const initialProps = [
     gradient: ['#1a2a3a', '#e8ecef'],
     caption: '실제 우주복 레플리카 헬멧, 바이저 개폐 기믹 포함.',
     priorityReservedBy: null,
-    priorityReservedDate: null,
+    priorityStartDate: null,
+    priorityEndDate: null,
     generalRentedBy: null,
+    generalStartDate: null,
+    generalEndDate: null,
     imageUrl: null,
     videoUrl: null,
   },
@@ -211,8 +226,11 @@ const initialProps = [
     gradient: ['#3a2a12', '#b8863b'],
     caption: '주인공의 잃어버린 아버지의 유품으로 등장하는 회중시계.',
     priorityReservedBy: '인디 감독 · 서예은',
-    priorityReservedDate: '2026-08-20',
+    priorityStartDate: '2026-08-20',
+    priorityEndDate: '2026-08-20',
     generalRentedBy: null,
+    generalStartDate: null,
+    generalEndDate: null,
     imageUrl: null,
     videoUrl: null,
   },
@@ -227,8 +245,11 @@ const initialProps = [
     gradient: ['#1c1c1c', '#8f8f8f'],
     caption: '클로즈업 촬영용 정밀 각인 형사 배지.',
     priorityReservedBy: null,
-    priorityReservedDate: null,
+    priorityStartDate: null,
+    priorityEndDate: null,
     generalRentedBy: null,
+    generalStartDate: null,
+    generalEndDate: null,
     imageUrl: null,
     videoUrl: null,
   },
@@ -243,8 +264,11 @@ const initialProps = [
     gradient: ['#3a1414', '#d4622f'],
     caption: '최종 결투 씬에서 사용된 드래곤 비늘 문양 방패.',
     priorityReservedBy: null,
-    priorityReservedDate: null,
+    priorityStartDate: null,
+    priorityEndDate: null,
     generalRentedBy: null,
+    generalStartDate: null,
+    generalEndDate: null,
     imageUrl: null,
     videoUrl: null,
   },
@@ -263,6 +287,23 @@ const SHEET_TAB_NAME = 'Props'; // 구글시트의 탭(시트) 이름
 
 function sheetRowToProp_(row) {
   const orNull = (v) => (v === undefined || v === null || v === '' ? null : v);
+  let priorityStartDate = null, priorityEndDate = null;
+  if (row.priorityDate) {
+    const parts = String(row.priorityDate).split('~');
+    priorityStartDate = parts[0] || null;
+    priorityEndDate = parts[1] || parts[0] || null;
+  }
+  // generalRentedBy 컬럼 하나에 "이름||시작일~종료일" 형태로 합쳐서 저장 (새 컬럼 추가 없이 재사용)
+  let generalRentedBy = null, generalStartDate = null, generalEndDate = null;
+  if (row.generalRentedBy) {
+    const [namePart, datePart] = String(row.generalRentedBy).split('||');
+    generalRentedBy = namePart || null;
+    if (datePart) {
+      const parts = datePart.split('~');
+      generalStartDate = parts[0] || null;
+      generalEndDate = parts[1] || parts[0] || null;
+    }
+  }
   return {
     id: row.id,
     code: row.code,
@@ -274,8 +315,11 @@ function sheetRowToProp_(row) {
     caption: row.caption,
     gradient: [row.gradient1 || '#3a352f', row.gradient2 || '#6b625a'],
     priorityReservedBy: orNull(row.reservedBy),
-    priorityReservedDate: orNull(row.priorityDate),
-    generalRentedBy: orNull(row.generalRentedBy),
+    priorityStartDate,
+    priorityEndDate,
+    generalRentedBy,
+    generalStartDate,
+    generalEndDate,
     imageUrl: orNull(row.imageUrl),
     videoUrl: orNull(row.videoUrl),
   };
@@ -283,6 +327,21 @@ function sheetRowToProp_(row) {
 
 function propToSheetRow_(prop) {
   const g = prop.gradient || ['#3a352f', '#6b625a'];
+  const priorityDate = prop.priorityStartDate
+    ? (prop.priorityEndDate && prop.priorityEndDate !== prop.priorityStartDate
+        ? `${prop.priorityStartDate}~${prop.priorityEndDate}`
+        : prop.priorityStartDate)
+    : '';
+  let generalRentedByCell = '';
+  if (prop.generalRentedBy) {
+    generalRentedByCell = prop.generalRentedBy;
+    if (prop.generalStartDate) {
+      const range = prop.generalEndDate && prop.generalEndDate !== prop.generalStartDate
+        ? `${prop.generalStartDate}~${prop.generalEndDate}`
+        : prop.generalStartDate;
+      generalRentedByCell += `||${range}`;
+    }
+  }
   return {
     id: String(prop.id),
     code: prop.code || '',
@@ -296,8 +355,8 @@ function propToSheetRow_(prop) {
     gradient2: g[1],
     isPriority: prop.priorityReservedBy ? 'TRUE' : 'FALSE',
     reservedBy: prop.priorityReservedBy || '',
-    priorityDate: prop.priorityReservedDate || '',
-    generalRentedBy: prop.generalRentedBy || '',
+    priorityDate,
+    generalRentedBy: generalRentedByCell,
     imageUrl: prop.imageUrl || '',
     videoUrl: prop.videoUrl || '',
   };
@@ -405,14 +464,25 @@ function PropTag({ prop, onReserve, onCancelReserve }) {
   const reserved = !!prop.priorityReservedBy;
   const [pickingDate, setPickingDate] = useState(false);
   const minDate = useMemo(() => getMinReservationDate_(), []);
-  const [chosenDate, setChosenDate] = useState(minDate);
+  const [startDate, setStartDate] = useState(minDate);
+  const [endDate, setEndDate] = useState(minDate);
+
+  const handleStartChange = (e) => {
+    const v = e.target.value;
+    setStartDate(v);
+    if (endDate < v) setEndDate(v); // 종료일이 시작일보다 앞서지 않도록 자동 보정
+  };
 
   const handleConfirm = () => {
-    if (!chosenDate || chosenDate < minDate) {
-      alert(`우선 예약은 최소 ${MIN_RESERVE_LEAD_DAYS}일 전에 신청해야 합니다. 날짜를 다시 선택해주세요.`);
+    if (!startDate || startDate < minDate) {
+      alert(`우선 예약은 최소 ${MIN_RESERVE_LEAD_DAYS}일 전에 신청해야 합니다. 시작일을 다시 선택해주세요.`);
       return;
     }
-    onReserve(prop.id, chosenDate);
+    if (!endDate || endDate < startDate) {
+      alert('종료일은 시작일보다 빠를 수 없습니다.');
+      return;
+    }
+    onReserve(prop.id, startDate, endDate);
     setPickingDate(false);
   };
 
@@ -457,7 +527,10 @@ function PropTag({ prop, onReserve, onCancelReserve }) {
                 예약됨 · 촬영 대여 중
               </button>
               <p className="text-[11px] text-rust text-center">
-                {prop.priorityReservedBy}{prop.priorityReservedDate && ` · 촬영일 ${prop.priorityReservedDate}`}
+                {prop.priorityReservedBy}
+                {prop.priorityStartDate && (
+                  <> · 촬영기간 {prop.priorityStartDate}{prop.priorityEndDate && prop.priorityEndDate !== prop.priorityStartDate ? ` ~ ${prop.priorityEndDate}` : ''}</>
+                )}
               </p>
               <button
                 onClick={() => onCancelReserve(prop.id)}
@@ -468,15 +541,23 @@ function PropTag({ prop, onReserve, onCancelReserve }) {
             </div>
           ) : pickingDate ? (
             <div className="w-full flex flex-col gap-2">
-              <label className="text-[11px] text-muted font-mono">촬영 예정일 선택</label>
+              <label className="text-[11px] text-muted font-mono">촬영 시작일</label>
               <input
                 type="date"
                 min={minDate}
-                value={chosenDate}
-                onChange={(e) => setChosenDate(e.target.value)}
+                value={startDate}
+                onChange={handleStartChange}
                 className="w-full bg-stage border border-white/10 rounded px-2 py-1.5 text-xs"
               />
-              <p className="text-[10px] text-muted">오늘로부터 최소 {MIN_RESERVE_LEAD_DAYS}일 이후 날짜만 선택할 수 있어요.</p>
+              <label className="text-[11px] text-muted font-mono mt-1">촬영 종료일</label>
+              <input
+                type="date"
+                min={startDate}
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                className="w-full bg-stage border border-white/10 rounded px-2 py-1.5 text-xs"
+              />
+              <p className="text-[10px] text-muted">시작일은 오늘로부터 최소 {MIN_RESERVE_LEAD_DAYS}일 이후여야 하고, 여러 날에 걸쳐 예약할 수 있어요.</p>
               <div className="flex gap-2">
                 <button onClick={handleConfirm} className="flex-1 py-2 rounded bg-amber text-stage text-xs font-bold hover:bg-amber/90 transition">
                   예약 확정
@@ -559,6 +640,24 @@ function FeedSlide({ prop, interaction, onLike, onSave, onShare, onRent, onCance
   const videoRef = useRef(null);
   const slideRef = useRef(null);
 
+  const [pickingRentDate, setPickingRentDate] = useState(false);
+  const todayStr = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const [rentStart, setRentStart] = useState(todayStr);
+  const [rentEnd, setRentEnd] = useState(todayStr);
+
+  const handleRentStartChange = (e) => {
+    const v = e.target.value;
+    setRentStart(v);
+    if (rentEnd < v) setRentEnd(v); // 종료일이 시작일보다 앞서지 않도록 자동 보정
+  };
+
+  const handleConfirmRent = () => {
+    if (!rentStart) { alert('대여 시작일을 선택해주세요.'); return; }
+    if (!rentEnd || rentEnd < rentStart) { alert('종료일은 시작일보다 빠를 수 없습니다.'); return; }
+    onRent(prop, rentStart, rentEnd);
+    setPickingRentDate(false);
+  };
+
   // 숏폼처럼: 이 영상이 화면(스크롤 컨테이너) 안에 충분히 보일 때만 재생하고,
   // 스크롤해서 벗어나면 자동으로 멈춥니다.
   useEffect(() => {
@@ -621,7 +720,7 @@ function FeedSlide({ prop, interaction, onLike, onSave, onShare, onRent, onCance
       {/* 우선예약 뱃지 (정보 표시용 — 일반 사용자의 대여 자체를 막지는 않아요) */}
       {prop.priorityReservedBy && (
         <div className="absolute top-4 left-4 stamp px-2 py-0.5 text-[10px] font-bold bg-stage/70 rounded">
-          촬영 대여중{prop.priorityReservedDate && ` · ${prop.priorityReservedDate}`}
+          촬영 대여중{prop.priorityStartDate && ` · ${prop.priorityStartDate}${prop.priorityEndDate && prop.priorityEndDate !== prop.priorityStartDate ? ` ~ ${prop.priorityEndDate}` : ''}`}
         </div>
       )}
       <div className="absolute top-4 right-4 font-mono text-[10px] text-ink/60">{prop.code}</div>
@@ -649,9 +748,9 @@ function FeedSlide({ prop, interaction, onLike, onSave, onShare, onRent, onCance
         <p className="text-sm text-ink/80 mt-1 max-w-md">{prop.caption}</p>
 
         {prop.generalRentedBy ? (
-          <div className="flex items-center gap-2 mt-4">
+          <div className="flex items-center gap-2 mt-4 flex-wrap">
             <span className="px-5 py-2.5 rounded-full text-sm font-bold bg-white/10 text-ink border border-white/20">
-              대여중
+              대여중{prop.generalStartDate && ` · ${prop.generalStartDate}${prop.generalEndDate && prop.generalEndDate !== prop.generalStartDate ? ` ~ ${prop.generalEndDate}` : ''}`}
             </span>
             <button
               onClick={() => onCancelRent(prop.id)}
@@ -660,9 +759,36 @@ function FeedSlide({ prop, interaction, onLike, onSave, onShare, onRent, onCance
               대여 취소
             </button>
           </div>
+        ) : pickingRentDate ? (
+          <div className="mt-4 bg-stage/80 backdrop-blur rounded-xl p-4 flex flex-col gap-2 max-w-xs border border-white/10">
+            <label className="text-[11px] text-muted font-mono">대여 시작일</label>
+            <input
+              type="date"
+              min={todayStr}
+              value={rentStart}
+              onChange={handleRentStartChange}
+              className="w-full bg-black/30 border border-white/10 rounded px-2 py-1.5 text-xs text-ink"
+            />
+            <label className="text-[11px] text-muted font-mono mt-1">대여 종료일</label>
+            <input
+              type="date"
+              min={rentStart}
+              value={rentEnd}
+              onChange={(e) => setRentEnd(e.target.value)}
+              className="w-full bg-black/30 border border-white/10 rounded px-2 py-1.5 text-xs text-ink"
+            />
+            <div className="flex gap-2 mt-1">
+              <button onClick={handleConfirmRent} className="flex-1 py-2 rounded bg-ink text-stage text-xs font-bold hover:bg-ink/90 transition">
+                대여 확정
+              </button>
+              <button onClick={() => setPickingRentDate(false)} className="flex-1 py-2 rounded bg-white/10 text-ink text-xs font-semibold hover:bg-white/15 transition">
+                취소
+              </button>
+            </div>
+          </div>
         ) : (
           <button
-            onClick={() => onRent(prop)}
+            onClick={() => setPickingRentDate(true)}
             className="mt-4 px-5 py-2.5 rounded-full text-sm font-bold bg-ink text-stage hover:bg-ink/90 transition active:scale-95"
           >
             대여하기
@@ -783,8 +909,11 @@ function RegisterScreen({ onAddProp, sheetUrl, syncing }) {
       gradient: ['#3a352f', '#6b625a'], // 이미지가 없을 때만 쓰이는 기본 플레이스홀더 색
       caption: form.caption.trim(),
       priorityReservedBy: null,
-      priorityReservedDate: null,
+      priorityStartDate: null,
+      priorityEndDate: null,
       generalRentedBy: null,
+      generalStartDate: null,
+      generalEndDate: null,
       imageUrl: form.imageLinkUrl.trim() || form.imageFileUrl || null,
       videoUrl: form.videoLinkUrl.trim() || form.videoFileUrl || null,
     };
@@ -998,9 +1127,9 @@ function App() {
     toastTimer.current = setTimeout(() => setToast(null), 2600);
   };
 
-  // 독립영화팀 화면: 우선 예약 처리 (촬영일 필수, 최소 10일 전 신청)
+  // 독립영화팀 화면: 우선 예약 처리 (촬영 시작일 최소 10일 전 신청, 여러 날 촬영 기간 지원)
   // -> 기존에 일반 사용자가 대여 중이었다면 그 대여를 취소하고 우선예약으로 전환합니다.
-  const handleReserve = (id, date) => {
+  const handleReserve = (id, startDate, endDate) => {
     let overrodeGeneral = false;
     setProps(prev => prev.map(p => {
       if (p.id !== id) return p;
@@ -1008,36 +1137,43 @@ function App() {
       return {
         ...p,
         priorityReservedBy: '인디 감독 · 나 (지금 예약)',
-        priorityReservedDate: date,
+        priorityStartDate: startDate,
+        priorityEndDate: endDate,
         generalRentedBy: null, // 우선예약이 일반 대여를 덮어씀
+        generalStartDate: null,
+        generalEndDate: null,
       };
     }));
+    const period = endDate && endDate !== startDate ? `${startDate} ~ ${endDate}` : startDate;
     showToast(
       overrodeGeneral
-        ? `우선 예약이 완료되었습니다 (촬영일 ${date}). 기존 일반 대여는 취소되었습니다.`
-        : `우선 예약이 완료되었습니다 (촬영일 ${date}).`,
+        ? `우선 예약이 완료되었습니다 (촬영기간 ${period}). 기존 일반 대여는 취소되었습니다.`
+        : `우선 예약이 완료되었습니다 (촬영기간 ${period}).`,
       'success'
     );
   };
 
   const handleCancelReserve = (id) => {
     setProps(prev => prev.map(p =>
-      p.id === id ? { ...p, priorityReservedBy: null, priorityReservedDate: null } : p
+      p.id === id ? { ...p, priorityReservedBy: null, priorityStartDate: null, priorityEndDate: null } : p
     ));
     showToast('우선 예약이 취소되었습니다.', 'success');
   };
 
   // 일반 사용자 화면: 대여는 언제나 신청 가능 (단, 이후 우선예약이 들어오면 취소될 수 있음)
-  const handleRent = (prop) => {
+  const handleRent = (prop, startDate, endDate) => {
     setProps(prev => prev.map(p =>
-      p.id === prop.id ? { ...p, generalRentedBy: '일반 사용자 · 나' } : p
+      p.id === prop.id
+        ? { ...p, generalRentedBy: '일반 사용자 · 나', generalStartDate: startDate, generalEndDate: endDate }
+        : p
     ));
-    showToast(`'${prop.name}' 대여가 신청되었습니다.`, 'success');
+    const period = endDate && endDate !== startDate ? `${startDate} ~ ${endDate}` : startDate;
+    showToast(`'${prop.name}' 대여가 신청되었습니다 (${period}).`, 'success');
   };
 
   const handleCancelRent = (id) => {
     setProps(prev => prev.map(p =>
-      p.id === id ? { ...p, generalRentedBy: null } : p
+      p.id === id ? { ...p, generalRentedBy: null, generalStartDate: null, generalEndDate: null } : p
     ));
     showToast('대여가 취소되었습니다.', 'success');
   };

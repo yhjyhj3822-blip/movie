@@ -605,15 +605,16 @@ function FeedSlide({ prop, interaction, onLike, onSave, onShare, onRent }) {
 
 function FeedScreen({ props, interactions, onLike, onSave, onShare, onRent }) {
   return (
-    <div className="flex justify-center pt-6 pb-10 px-4">
-      <div className="w-full sm:max-w-[420px]">
-        <div className="mb-4 text-center">
+    <div className="flex justify-center h-[calc(100dvh-118px)] sm:h-auto sm:pt-6 sm:pb-10 sm:px-4">
+      <div className="w-full h-full sm:h-auto sm:max-w-[420px]">
+        <div className="hidden sm:block mb-4 text-center">
           <p className="font-mono text-xs text-amber tracking-widest mb-1">GENERAL_USER VIEW</p>
           <h2 className="font-display text-3xl tracking-wide">숏폼 소품 피드</h2>
           <p className="text-xs text-muted mt-1">위아래로 스크롤해서 소품 영상을 감상하고, 마음에 들면 대여를 신청해보세요.</p>
         </div>
 
-        <div className="feed-scroll rounded-2xl border border-white/10 shadow-2xl" style={{ height: 'min(72vh, calc(100dvh - 220px))' }}>
+        {/* 폰: 화면을 꽉 채우는 진짜 숏폼 비율 / 데스크톱: 9:16 세로 플레이어 카드 */}
+        <div className="feed-scroll w-full h-full sm:h-auto sm:aspect-[9/16] sm:max-h-[85vh] sm:rounded-2xl sm:border sm:border-white/10 sm:shadow-2xl">
           {props.map(p => (
             <FeedSlide
               key={p.id}
@@ -1009,7 +1010,7 @@ function App() {
       </header>
 
       {/* 본문 */}
-      <main className="flex-1 pb-20 sm:pb-0">
+      <main className={`flex-1 ${tab === 'feed' ? '' : 'pb-20 sm:pb-0'}`}>
         {tab === 'catalog' && <CatalogScreen props={props} onReserve={handleReserve} />}
         {tab === 'feed' && (
           <FeedScreen

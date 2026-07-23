@@ -457,16 +457,55 @@ function CatalogScreen({ props, onReserve }) {
   );
 }
 
+/** 유튜브 링크(watch/youtu.be/shorts 등)를 감지해서 임베드 가능한 URL로 변환. 유튜브가 아니면 null 반환 */
+function getYoutubeEmbedUrl_(url) {
+  if (!url) return null;
+  const patterns = [
+    /(?:youtube\.com\/watch\?v=|youtube\.com\/shorts\/|youtu\.be\/|youtube\.com\/embed\/)([\w-]{11})/,
+  ];
+  for (const re of patterns) {
+    const m = url.match(re);
+    if (m) return `https://www.youtube.com/embed/${m[1]}?autoplay=1&mute=1&loop=1&playlist=${m[1]}&playsinline=1&controls=0`;
+  }
+  return null;
+}
+
+/** 구글 드라이브 공유 링크를 감지해서 임베드 가능한 미리보기 URL로 변환. 드라이브 링크가 아니면 null 반환.
+ *  ⚠ 파일 공유 설정이 "링크가 있는 모든 사용자(뷰어)"로 되어 있어야 다른 사람도 재생할 수 있습니다. */
+function getGoogleDriveEmbedUrl_(url) {
+  if (!url) return null;
+  const m = url.match(/drive\.google\.com\/file\/d\/([\w-]+)/) || url.match(/[?&]id=([\w-]+)/);
+  if (m) return `https://drive.google.com/file/d/${m[1]}/preview`;
+  return null;
+}
+
 /* ----------------------------------------------------------------
    화면 2: 숏폼 피드 (일반 사용자)
 ------------------------------------------------------------------- */
 function FeedSlide({ prop, interaction, onLike, onSave, onShare, onRent }) {
+  const youtubeEmbedUrl = getYoutubeEmbedUrl_(prop.videoUrl);
+  const driveEmbedUrl = !youtubeEmbedUrl ? getGoogleDriveEmbedUrl_(prop.videoUrl) : null;
   return (
     <div className="feed-slide relative h-full w-full shrink-0 flex items-end justify-start"
       style={!prop.videoUrl && !prop.imageUrl ? { backgroundImage: `linear-gradient(200deg, ${(prop.gradient || ['#3a352f','#6b625a'])[0]}, ${(prop.gradient || ['#3a352f','#6b625a'])[1]})` } : undefined}
     >
-      {/* 업로드된 영상 클립이 있으면 우선 재생, 없고 이미지가 있으면 이미지, 둘 다 없으면 그라디언트 플레이스홀더 */}
-      {prop.videoUrl ? (
+      {/* 유튜브/구글드라이브 링크면 iframe 임베드, 그 외 mp4 등 직접 영상 링크면 video 태그,
+          영상이 없고 이미지만 있으면 이미지, 아무것도 없으면 그라디언트 플레이스홀더 */}
+      {youtubeEmbedUrl ? (
+        <iframe
+          className="absolute inset-0 w-full h-full pointer-events-none"
+          src={youtubeEmbedUrl}
+          allow="autoplay; encrypted-media"
+          frameBorder="0"
+        />
+      ) : driveEmbedUrl ? (
+        <iframe
+          className="absolute inset-0 w-full h-full"
+          src={driveEmbedUrl}
+          allow="autoplay"
+          frameBorder="0"
+        />
+      ) : prop.videoUrl ? (
         <video
           className="absolute inset-0 w-full h-full object-cover"
           src={prop.videoUrl}
@@ -556,6 +595,29 @@ function FeedScreen({ props, interactions, onLike, onSave, onShare, onRent }) {
 }
 
 /* ----------------------------------------------------------------
+   Cloudinary 연동 — 영상 파일을 선택하면 자동으로 업로드되어 영구 재생 링크가 생깁니다.
+------------------------------------------------------------------- */
+const CLOUDINARY_CLOUD_NAME = 'ombmg03p';
+const CLOUDINARY_UPLOAD_PRESET = 'n0lhfk54';
+
+async function uploadVideoToCloudinary(file) {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
+  const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/video/upload`, {
+    method: 'POST',
+    body: formData,
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new Error(`영상 업로드 실패 (HTTP ${res.status}) ${errText}`);
+  }
+  const data = await res.json();
+  if (!data.secure_url) throw new Error('업로드 응답에 영상 주소가 없습니다.');
+  return data.secure_url;
+}
+
+/* ----------------------------------------------------------------
    화면 3: 소품 등록 — 사용자가 직접 이미지/영상 클립을 넣어 소품 추가
 ------------------------------------------------------------------- */
 function RegisterScreen({ onAddProp, sheetUrl, syncing }) {
@@ -566,6 +628,8 @@ function RegisterScreen({ onAddProp, sheetUrl, syncing }) {
   const [form, setForm] = useState(blank);
   const [imgFileName, setImgFileName] = useState('');
   const [vidFileName, setVidFileName] = useState('');
+  const [videoUploading, setVideoUploading] = useState(false);
+  const [videoUploadError, setVideoUploadError] = useState('');
 
   const set = (key) => (e) => setForm(prev => ({ ...prev, [key]: e.target.value }));
 
@@ -578,21 +642,27 @@ function RegisterScreen({ onAddProp, sheetUrl, syncing }) {
     reader.readAsDataURL(file); // 이미지는 용량이 작아 base64로 바로 저장 가능
   };
 
-  const handleVideoFile = (e) => {
+  const handleVideoFile = async (e) => {
     const file = e.target.files && e.target.files[0];
     if (!file) return;
     setVidFileName(file.name);
-    // 영상은 용량이 커서 base64 대신 브라우저 임시 재생 URL(blob)만 만듭니다.
-    // 이 blob URL은 "지금 이 탭을 새로고침하기 전까지"만 재생됩니다.
-    // 새로고침 후에도 유지하려면 아래 "영상 링크" 칸에 유튜브/구글드라이브/자체 서버 등에
-    // 업로드한 영상의 URL을 붙여넣어 주세요.
-    const url = URL.createObjectURL(file);
-    setForm(prev => ({ ...prev, videoFileUrl: url }));
+    setVideoUploadError('');
+    setVideoUploading(true);
+    try {
+      const secureUrl = await uploadVideoToCloudinary(file);
+      setForm(prev => ({ ...prev, videoFileUrl: secureUrl }));
+    } catch (err) {
+      setVideoUploadError(err.message || '영상 업로드에 실패했습니다.');
+      setForm(prev => ({ ...prev, videoFileUrl: '' }));
+    } finally {
+      setVideoUploading(false);
+    }
   };
 
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!form.name.trim()) { alert('소품 이름을 입력해주세요.'); return; }
+    if (videoUploading) { alert('영상 업로드가 끝날 때까지 잠시만 기다려주세요.'); return; }
     const newProp = {
       id: Date.now(),
       code: form.code.trim() || `PS-${String(Math.floor(1000 + Math.random() * 9000))}`,
@@ -612,6 +682,7 @@ function RegisterScreen({ onAddProp, sheetUrl, syncing }) {
     setForm(blank);
     setImgFileName('');
     setVidFileName('');
+    setVideoUploadError('');
   };
 
   return (
@@ -667,15 +738,17 @@ function RegisterScreen({ onAddProp, sheetUrl, syncing }) {
           </div>
           <div>
             <label className="text-xs text-amber font-mono">소품 영상 클립</label>
-            <input type="file" accept="video/*" onChange={handleVideoFile} className="mt-1 w-full text-xs text-muted file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:bg-amber file:text-stage file:text-xs file:font-bold" />
-            {vidFileName && <p className="text-[11px] text-olive mt-1">첨부됨: {vidFileName} (새로고침 전까지만 재생됨)</p>}
-            <p className="text-[11px] text-muted mt-1">영구 저장하려면 영상 URL을 입력하세요 (권장):</p>
-            <input value={form.videoLinkUrl} onChange={set('videoLinkUrl')} className="mt-1 w-full bg-stage border border-white/10 rounded px-3 py-2 text-xs" placeholder="mp4 직링크, 구글드라이브 공유링크 등" />
+            <input type="file" accept="video/*" onChange={handleVideoFile} disabled={videoUploading} className="mt-1 w-full text-xs text-muted file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:bg-amber file:text-stage file:text-xs file:font-bold disabled:opacity-50" />
+            {videoUploading && <p className="text-[11px] text-amber mt-1">⏳ 영상 업로드 중... (파일 크기에 따라 시간이 걸릴 수 있어요)</p>}
+            {!videoUploading && vidFileName && form.videoFileUrl && <p className="text-[11px] text-olive mt-1">✅ 업로드 완료: {vidFileName}</p>}
+            {!videoUploading && videoUploadError && <p className="text-[11px] text-red-400 mt-1">❌ {videoUploadError}</p>}
+            <p className="text-[11px] text-muted mt-1">또는 영상 URL 직접 입력 (유튜브/구글드라이브 등):</p>
+            <input value={form.videoLinkUrl} onChange={set('videoLinkUrl')} className="mt-1 w-full bg-stage border border-white/10 rounded px-3 py-2 text-xs" placeholder="mp4 직링크, 유튜브, 구글드라이브 공유링크 등" />
           </div>
         </div>
 
-        <button type="submit" disabled={syncing} className="mt-2 w-full py-3 rounded bg-amber text-stage font-bold hover:bg-amber/90 active:scale-[0.99] transition disabled:opacity-50">
-          {syncing ? '저장 중...' : '소품 추가하기'}
+        <button type="submit" disabled={syncing || videoUploading} className="mt-2 w-full py-3 rounded bg-amber text-stage font-bold hover:bg-amber/90 active:scale-[0.99] transition disabled:opacity-50">
+          {videoUploading ? '영상 업로드 대기 중...' : syncing ? '저장 중...' : '소품 추가하기'}
         </button>
       </form>
     </div>

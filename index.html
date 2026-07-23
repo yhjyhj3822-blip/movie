@@ -830,26 +830,36 @@ function FeedScreen({ props, interactions, onLike, onSave, onShare, onRent, onCa
 }
 
 /* ----------------------------------------------------------------
-   Cloudinary 연동 — 영상 파일을 선택하면 자동으로 업로드되어 영구 재생 링크가 생깁니다.
+   Cloudinary 연동 — 이미지/영상 파일을 선택하면 자동으로 업로드되어 영구 링크가 생깁니다.
+   (base64로 시트에 직접 넣으면 셀 글자수 제한(약 5만자)을 넘어 저장이 실패할 수 있어
+   이미지도 영상과 마찬가지로 Cloudinary에 올리고 짧은 링크만 저장합니다)
 ------------------------------------------------------------------- */
 const CLOUDINARY_CLOUD_NAME = 'ombmg03p';
 const CLOUDINARY_UPLOAD_PRESET = 'n0lhfk54';
 
-async function uploadVideoToCloudinary(file) {
+async function uploadToCloudinary_(file, resourceType) {
   const formData = new FormData();
   formData.append('file', file);
   formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
-  const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/video/upload`, {
+  const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/${resourceType}/upload`, {
     method: 'POST',
     body: formData,
   });
   if (!res.ok) {
     const errText = await res.text().catch(() => '');
-    throw new Error(`영상 업로드 실패 (HTTP ${res.status}) ${errText}`);
+    throw new Error(`업로드 실패 (HTTP ${res.status}) ${errText}`);
   }
   const data = await res.json();
-  if (!data.secure_url) throw new Error('업로드 응답에 영상 주소가 없습니다.');
+  if (!data.secure_url) throw new Error('업로드 응답에 파일 주소가 없습니다.');
   return data.secure_url;
+}
+
+async function uploadImageToCloudinary(file) {
+  return uploadToCloudinary_(file, 'image');
+}
+
+async function uploadVideoToCloudinary(file) {
+  return uploadToCloudinary_(file, 'video');
 }
 
 /* ----------------------------------------------------------------
@@ -863,18 +873,28 @@ function RegisterScreen({ onAddProp, sheetUrl, syncing }) {
   const [form, setForm] = useState(blank);
   const [imgFileName, setImgFileName] = useState('');
   const [vidFileName, setVidFileName] = useState('');
+  const [imageUploading, setImageUploading] = useState(false);
+  const [imageUploadError, setImageUploadError] = useState('');
   const [videoUploading, setVideoUploading] = useState(false);
   const [videoUploadError, setVideoUploadError] = useState('');
 
   const set = (key) => (e) => setForm(prev => ({ ...prev, [key]: e.target.value }));
 
-  const handleImageFile = (e) => {
+  const handleImageFile = async (e) => {
     const file = e.target.files && e.target.files[0];
     if (!file) return;
     setImgFileName(file.name);
-    const reader = new FileReader();
-    reader.onload = () => setForm(prev => ({ ...prev, imageFileUrl: reader.result }));
-    reader.readAsDataURL(file); // 이미지는 용량이 작아 base64로 바로 저장 가능
+    setImageUploadError('');
+    setImageUploading(true);
+    try {
+      const secureUrl = await uploadImageToCloudinary(file);
+      setForm(prev => ({ ...prev, imageFileUrl: secureUrl }));
+    } catch (err) {
+      setImageUploadError(err.message || '이미지 업로드에 실패했습니다.');
+      setForm(prev => ({ ...prev, imageFileUrl: '' }));
+    } finally {
+      setImageUploading(false);
+    }
   };
 
   const handleVideoFile = async (e) => {
@@ -898,6 +918,7 @@ function RegisterScreen({ onAddProp, sheetUrl, syncing }) {
     e.preventDefault();
     if (!form.name.trim()) { alert('소품 이름을 입력해주세요.'); return; }
     if (videoUploading) { alert('영상 업로드가 끝날 때까지 잠시만 기다려주세요.'); return; }
+    if (imageUploading) { alert('이미지 업로드가 끝날 때까지 잠시만 기다려주세요.'); return; }
     const newProp = {
       id: Date.now(),
       code: form.code.trim() || `PS-${String(Math.floor(1000 + Math.random() * 9000))}`,
@@ -970,8 +991,10 @@ function RegisterScreen({ onAddProp, sheetUrl, syncing }) {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-white/10">
           <div>
             <label className="text-xs text-amber font-mono">소품 이미지</label>
-            <input type="file" accept="image/*" onChange={handleImageFile} className="mt-1 w-full text-xs text-muted file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:bg-amber file:text-stage file:text-xs file:font-bold" />
-            {imgFileName && <p className="text-[11px] text-olive mt-1">첨부됨: {imgFileName}</p>}
+            <input type="file" accept="image/*" onChange={handleImageFile} disabled={imageUploading} className="mt-1 w-full text-xs text-muted file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:bg-amber file:text-stage file:text-xs file:font-bold disabled:opacity-50" />
+            {imageUploading && <p className="text-[11px] text-amber mt-1">⏳ 이미지 업로드 중...</p>}
+            {!imageUploading && imgFileName && form.imageFileUrl && <p className="text-[11px] text-olive mt-1">✅ 업로드 완료: {imgFileName}</p>}
+            {!imageUploading && imageUploadError && <p className="text-[11px] text-red-400 mt-1">❌ {imageUploadError}</p>}
             <p className="text-[11px] text-muted mt-1">또는 이미지 URL 직접 입력:</p>
             <input value={form.imageLinkUrl} onChange={set('imageLinkUrl')} className="mt-1 w-full bg-stage border border-white/10 rounded px-3 py-2 text-xs" placeholder="https://..." />
           </div>
@@ -986,8 +1009,8 @@ function RegisterScreen({ onAddProp, sheetUrl, syncing }) {
           </div>
         </div>
 
-        <button type="submit" disabled={syncing || videoUploading} className="mt-2 w-full py-3 rounded bg-amber text-stage font-bold hover:bg-amber/90 active:scale-[0.99] transition disabled:opacity-50">
-          {videoUploading ? '영상 업로드 대기 중...' : syncing ? '저장 중...' : '소품 추가하기'}
+        <button type="submit" disabled={syncing || videoUploading || imageUploading} className="mt-2 w-full py-3 rounded bg-amber text-stage font-bold hover:bg-amber/90 active:scale-[0.99] transition disabled:opacity-50">
+          {imageUploading ? '이미지 업로드 대기 중...' : videoUploading ? '영상 업로드 대기 중...' : syncing ? '저장 중...' : '소품 추가하기'}
         </button>
       </form>
     </div>
